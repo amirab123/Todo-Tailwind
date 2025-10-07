@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Todo App — Page unique (Tailwind + JS)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+  
+    .line-through-animated {
+      text-decoration: line-through;
+      text-decoration-thickness: 2px;
+      transition: color .2s ease, opacity .2s ease;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-100 min-h-screen flex items-center justify-center p-6">
+  <main class="w-full max-w-3xl bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-6">
+    <header class="flex items-center justify-between mb-4">
+      <div>
+        <h1 class="text-2xl font-bold">Todo — Mini projet</h1>
+        <p class="text-sm text-slate-500 dark:text-slate-300">Ajouter, éditer, rechercher et filtrer vos tâches. Sauvegarde locale.</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <button id="toggleDark" class="p-2 rounded-md border bg-slate-50 dark:bg-slate-700/40">Thème</button>
+        <button id="clearAll" class="p-2 rounded-md border text-sm text-red-600">Vider</button>
+      </div>
+    </header>
+
+    <!-- Formulaire d'ajout -->
+    <form id="addForm" class="flex gap-3 mb-4">
+      <input id="todoInput" class="flex-1 p-3 rounded-md border focus:outline-none" placeholder="Ajouter une tâche et appuyer sur Entrée" aria-label="Nouvelle tâche" required />
+      <button class="px-4 py-2 rounded-md bg-indigo-600 text-white" type="submit">Ajouter</button>
+    </form>
+
+    <!-- Actions & recherche -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+      <div class="flex items-center gap-2">
+        <button class="filter-btn px-3 py-1 rounded-md border" data-filter="all">Toutes</button>
+        <button class="filter-btn px-3 py-1 rounded-md border" data-filter="active">Actives</button>
+        <button class="filter-btn px-3 py-1 rounded-md border" data-filter="completed">Terminées</button>
+      </div>
+      <input id="search" class="p-2 rounded-md border" placeholder="Rechercher..." aria-label="Rechercher tâche" />
+    </div>
+
+    <!-- Liste -->
+    <ul id="todoList" class="space-y-2">
+      <!-- éléments générés en JS -->
+    </ul>
+
+    <footer class="mt-6 text-sm text-slate-500 dark:text-slate-400 flex justify-between items-center">
+      <div id="count">0 tâches</div>
+      <div>Projet simple • Vanilla JS + Tailwind</div>
+    </footer>
+  </main>
+
+  <script>
+    // Clé localStorage
+    const STORAGE_KEY = 'todoApp_v1'
+
+    // état
+    let todos = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
+    let filter = 'all'
+    let searchTerm = ''
+
+    // éléments DOM
+    const todoList = document.getElementById('todoList')
+    const addForm = document.getElementById('addForm')
+    const todoInput = document.getElementById('todoInput')
+    const filterBtns = document.querySelectorAll('.filter-btn')
+    const countEl = document.getElementById('count')
+    const searchInput = document.getElementById('search')
+    const toggleDark = document.getElementById('toggleDark')
+    const clearAll = document.getElementById('clearAll')
+
+    // utilitaires
+    const save = () => localStorage.setItem(STORAGE_KEY, JSON.stringify(todos))
+    const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7)
+
+    // rendu
+    function render() {
+      // appliquer filtre + recherche
+      const filtered = todos.filter(t => {
+        if (filter === 'active' && t.done) return false
+        if (filter === 'completed' && !t.done) return false
+        if (searchTerm && !t.text.toLowerCase().includes(searchTerm.toLowerCase())) return false
+        return true
+      })
+
+      todoList.innerHTML = ''
+      if (filtered.length === 0) {
+        const li = document.createElement('li')
+        li.className = 'p-4 rounded-md border border-dashed text-center text-slate-500 dark:text-slate-400'
+        li.textContent = 'Aucune tâche trouvée.'
+        todoList.appendChild(li)
+      }
+
+      filtered.forEach(t => {
+        const li = document.createElement('li')
+        li.className = 'flex items-center gap-3 p-3 rounded-md shadow-sm'
+
+        const checkbox = document.createElement('input')
+        checkbox.type = 'checkbox'
+        checkbox.checked = !!t.done
+        checkbox.className = 'w-5 h-5'
+        checkbox.addEventListener('change', () => {
+          t.done = checkbox.checked
+          save()
+          render()
+        })
+
+        const text = document.createElement('div')
+        text.className = 'flex-1 min-w-0'
+        text.innerHTML = `<div class="truncate ${t.done ? 'line-through-animated opacity-60' : ''}">${escapeHtml(t.text)}</div>
+                          <div class="text-xs text-slate-400">${new Date(t.createdAt).toLocaleString()}</div>`
+        text.addEventListener('dblclick', () => startEdit(t.id))
+
+        const editBtn = document.createElement('button')
+        editBtn.className = 'px-2 py-1 text-sm rounded-md border'
+        editBtn.textContent = 'Éditer'
+        editBtn.addEventListener('click', () => startEdit(t.id))
+
+        const delBtn = document.createElement('button')
+        delBtn.className = 'px-2 py-1 text-sm rounded-md border text-red-600'
+        delBtn.textContent = 'Supprimer'
+        delBtn.addEventListener('click', () => {
+          todos = todos.filter(x => x.id !== t.id)
+          save()
+          render()
+        })
+
+        li.appendChild(checkbox)
+        li.appendChild(text)
+        li.appendChild(editBtn)
+        li.appendChild(delBtn)
+
+        todoList.appendChild(li)
+      })
+
+      countEl.textContent = `${todos.length} tâche${todos.length > 1 ? 's' : ''}`
+    }
+
+    // échapper html (sécurité)
+    function escapeHtml(str) {
+      return String(str)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;')
+    }
+
+    // ajouter
+    addForm.addEventListener('submit', e => {
+      e.preventDefault()
+      const value = todoInput.value.trim()
+      if (!value) return
+      todos.unshift({ id: uid(), text: value, done: false, createdAt: new Date().toISOString() })
+      todoInput.value = ''
+      save()
+      render()
+      todoInput.focus()
+    })
+
+    // filtres
+    filterBtns.forEach(b => b.addEventListener('click', () => {
+      filter = b.dataset.filter
+      filterBtns.forEach(x => x.classList.remove('bg-indigo-600','text-white'))
+      b.classList.add('bg-indigo-600','text-white')
+      render()
+    }))
+
+    // recherche
+    searchInput.addEventListener('input', e => {
+      searchTerm = e.target.value
+      render()
+    })
+
+    // éditer inline
+    function startEdit(id) {
+      const index = todos.findIndex(t => t.id === id)
+      if (index === -1) return
+      const current = todos[index]
+      const newText = prompt('Modifier la tâche :', current.text)
+      if (newText === null) return
+      const trimmed = newText.trim()
+      if (!trimmed) return alert('Le texte ne peut pas être vide.')
+      todos[index].text = trimmed
+      save()
+      render()
+    }
+
+   
+    function applyTheme(dark) {
+      document.documentElement.classList.toggle('dark', dark)
+      localStorage.setItem('todo_theme_dark', dark ? '1' : '0')
+    }
+    toggleDark.addEventListener('click', () => {
+      const isDark = document.documentElement.classList.toggle('dark')
+      localStorage.setItem('todo_theme_dark', isDark ? '1' : '0')
+    })
+
+
+    (function initTheme() {
+      const dark = localStorage.getItem('todo_theme_dark') === '1'
+      applyTheme(dark)
+    })()
+
+    // vider tout
+    clearAll.addEventListener('click', () => {
+      if (!confirm('Supprimer toutes les tâches ?')) return
+      todos = []
+      save()
+      render()
+    })
+
+    // rendu initial
+    render()
+
+    // petit helper: pré-remplir quelques tâches la première fois
+    if (!localStorage.getItem(STORAGE_KEY) || todos.length === 0) {
+      todos = [
+        { id: uid(), text: 'Découvrir ce mini-projet', done: false, createdAt: new Date().toISOString() },
+        { id: uid(), text: 'Ajouter une nouvelle tâche', done: false, createdAt: new Date().toISOString() }
+      ]
+      save()
+      render()
+    }
+
+ 
+    window.addEventListener('keydown', (e) => {
+      if (e.key.toLowerCase() === 't' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        todoInput.focus()
+      }
+    })
+  </script>
+</body>
+</html>
